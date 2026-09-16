@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="340" viewBox="0 0 1200 340" role="img" aria-labelledby="hero-title hero-desc">
+  <title id="hero-title">GNA-115 disclosure site</title>
+  <desc id="hero-desc">GCVE Numbering Authority 115 disclosure site: public report intake, GCVE number allocation on publish, and a BCP-05 register, beside an excerpt of a published record.</desc>
+
+  <rect width="1200" height="340" fill="#0b0c0e"/>
+
+  <g id="title-block" transform="translate(64 54)">
+    <rect x="0" y="-26" width="4" height="20" fill="#ff0000"/>
+    <text x="20" y="-10" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" letter-spacing="1.6" fill="#ff0000">GCVE NUMBERING AUTHORITY 115</text>
+
+    <text x="0" y="62" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="48" font-weight="700" fill="#f8f9fa">GNA-115 disclosure site</text>
+
+    <text x="0" y="108" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" fill="#ced4da">Public vulnerability report intake, GCVE number allocation at</text>
+    <text x="0" y="136" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="20" fill="#ced4da">publication, and a BCP-05 register the ecosystem can pull.</text>
+
+    <text x="0" y="202" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#adb5bd">CLOUDFLARE PAGES   D1   HONO   REACT 19 + TYPESCRIPT</text>
+    <text x="0" y="230" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" fill="#adb5bd">BCP-03   BCP-04   BCP-05</text>
+  </g>
+
+  <g id="record-excerpt" transform="translate(660 64)">
+    <rect x="0" y="0" width="476" height="232" fill="#14161a"/>
+    <rect x="0" y="0" width="3" height="232" fill="#ff0000"/>
+    <text x="26" y="42" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#f8f9fa">{</text>
+    <text x="26" y="70" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#f8f9fa">&#160;&#160;"vulnId": "GCVE-115-2026-00001",</text>
+    <text x="26" y="98" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#f8f9fa">&#160;&#160;"recordType": "advisory",</text>
+    <text x="26" y="126" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#f8f9fa">&#160;&#160;"relationships": [</text>
+    <text x="26" y="154" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#f8f9fa">&#160;&#160;&#160;&#160;{ "destId": "CVE-2018-18375",</text>
+    <text x="26" y="182" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#f8f9fa">&#160;&#160;&#160;&#160;&#160;&#160;"type": "equal" } ]</text>
+    <text x="26" y="210" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="20" fill="#f8f9fa">}</text>
+  </g>
+
+  <text x="660" y="330" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="17" fill="#adb5bd">x_gcve extension, from a published record</text>
+</svg>
