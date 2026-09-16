@@ -1,0 +1,10 @@
+# Copy to .dev.vars for local development (never commit .dev.vars).
+#
+# Password hash for the admin panel. Generate with:
+#   npm run hash-password -- "your-password"
+ADMIN_PASSWORD_HASH=""
+
+# Cloudflare Turnstile. Leave both unset locally to skip bot verification.
+# TURNSTILE_SITE_KEY is exposed publicly via /api/public-config.
+TURNSTILE_SITE_KEY=""
+TURNSTILE_SECRET_KEY=""
