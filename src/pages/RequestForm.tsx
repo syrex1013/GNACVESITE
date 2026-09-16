@@ -1,9 +1,9 @@
 import { CircleNotch, SealCheck, Trash } from "@phosphor-icons/react";
-import { Turnstile, type TurnstileInstance } from "@marsidev/react-turnstile";
 import { useQuery } from "@tanstack/react-query";
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Controller, useFieldArray, useForm, type Path } from "react-hook-form";
 import { Link } from "react-router-dom";
+import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -103,8 +103,8 @@ export function RequestForm() {
   usePageTitle("Request a GCVE identifier");
 
   const config = useQuery({ queryKey: ["public-config"], queryFn: api.publicConfig, staleTime: Infinity });
-  const turnstileRef = useRef<TurnstileInstance | null>(null);
   const [token, setToken] = useState("");
+  const [turnstileKey, setTurnstileKey] = useState(0);
   const [banner, setBanner] = useState<string | null>(null);
   const [reference, setReference] = useState<string | null>(null);
 
@@ -170,8 +170,8 @@ export function RequestForm() {
       } else {
         setBanner("The report could not be sent. Check your connection and try again.");
       }
-      turnstileRef.current?.reset();
       setToken("");
+      setTurnstileKey((value) => value + 1);
     }
   });
 
@@ -431,16 +431,11 @@ export function RequestForm() {
             aria-label="Leave this field empty"
           />
 
-          {config.data?.turnstileSiteKey ? (
-            <Turnstile
-              ref={turnstileRef}
-              siteKey={config.data.turnstileSiteKey}
-              options={{ theme: "light", size: "normal" }}
-              onSuccess={setToken}
-              onExpire={() => setToken("")}
-              onError={() => setToken("")}
-            />
-          ) : null}
+          <TurnstileWidget
+            key={turnstileKey}
+            siteKey={config.data?.turnstileSiteKey ?? null}
+            onToken={setToken}
+          />
 
           {banner ? (
             <p role="alert" className="border-l-4 border-danger bg-surface-dim px-4 py-3 text-sm text-ink">

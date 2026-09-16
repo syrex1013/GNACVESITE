@@ -8,5 +8,4 @@ SITE_URL = "https://gna115.pages.dev"
 [[d1_databases]]
 binding = "DB"
 database_name = "gna115"
-# Replace with the id printed by: npx wrangler d1 create gna115
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "c4b251fa-22b2-4750-9061-fcee177b57a6"

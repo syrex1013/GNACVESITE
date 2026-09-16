@@ -1,8 +1,8 @@
 import { CircleNotch } from "@phosphor-icons/react";
-import { Turnstile } from "@marsidev/react-turnstile";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
+import { TurnstileWidget } from "@/components/TurnstileWidget";
 import { LogoMark } from "@/components/layout/LogoMark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -65,14 +65,7 @@ export function AdminLogin() {
             </div>
           </div>
 
-          {config.data?.turnstileSiteKey ? (
-            <Turnstile
-              siteKey={config.data.turnstileSiteKey}
-              options={{ theme: "light", size: "normal" }}
-              onSuccess={setToken}
-              onExpire={() => setToken("")}
-            />
-          ) : null}
+          {config.data?.turnstileSiteKey ? <TurnstileWidget siteKey={config.data.turnstileSiteKey} onToken={setToken} /> : null}
 
           {error ? (
             <p role="alert" className="border-l-4 border-danger bg-surface-dim px-3 py-2 text-sm text-ink">
