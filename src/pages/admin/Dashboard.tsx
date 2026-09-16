@@ -5,7 +5,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -33,6 +35,10 @@ export function Dashboard() {
   const [page, setPage] = useState(1);
   const [locked, setLocked] = useState<boolean | null>(null);
   const [togglingLock, setTogglingLock] = useState(false);
+  const [notificationEmail, setNotificationEmail] = useState("");
+  const [statusEmailsEnabled, setStatusEmailsEnabled] = useState(true);
+  const [savingEmailSettings, setSavingEmailSettings] = useState(false);
+  const [emailSettingsMessage, setEmailSettingsMessage] = useState<string | null>(null);
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(draft.trim());
@@ -58,10 +64,29 @@ export function Dashboard() {
     }
   };
 
-  useEffect(() => {
-    if (settings.data?.submissions_locked !== undefined) {
-      setLocked(settings.data.submissions_locked);
+  const saveEmailSettings = async () => {
+    setSavingEmailSettings(true);
+    setEmailSettingsMessage(null);
+    try {
+      const updated = await api.updateAdminSettings({
+        submission_notification_email: notificationEmail,
+        status_emails_enabled: statusEmailsEnabled,
+      });
+      setNotificationEmail(updated.submission_notification_email);
+      setStatusEmailsEnabled(updated.status_emails_enabled);
+      queryClient.setQueryData(["admin", "settings"], updated);
+      setEmailSettingsMessage("Email settings saved.");
+    } catch {
+      setEmailSettingsMessage("Could not save email settings.");
+    } finally {
+      setSavingEmailSettings(false);
     }
+  };
+
+  useEffect(() => {
+    if (settings.data?.submissions_locked !== undefined) setLocked(settings.data.submissions_locked);
+    if (settings.data?.submission_notification_email !== undefined) setNotificationEmail(settings.data.submission_notification_email);
+    if (settings.data?.status_emails_enabled !== undefined) setStatusEmailsEnabled(settings.data.status_emails_enabled);
   }, [settings.data]);
 
   const list = useQuery({
@@ -115,7 +140,38 @@ export function Dashboard() {
           </Button>
         </div>
       </div>
-
+      <section className="mt-6 border border-surface-high bg-surface p-6">
+        <h2 className="title-1">Email notifications</h2>
+        <p className="mt-2 text-sm text-ink-soft">Choose where new submission alerts go and whether reporters receive status updates.</p>
+        <div className="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div>
+            <Label htmlFor="submission-notification-email">New submission recipient</Label>
+            <Input
+              id="submission-notification-email"
+              type="email"
+              value={notificationEmail}
+              onChange={(event) => setNotificationEmail(event.target.value)}
+              className="mt-2"
+            />
+          </div>
+          <div className="flex items-start gap-3">
+            <Checkbox
+              id="status-emails-enabled"
+              checked={statusEmailsEnabled}
+              onCheckedChange={(checked) => setStatusEmailsEnabled(checked === true)}
+            />
+            <Label htmlFor="status-emails-enabled" className="font-normal text-ink-soft">
+              Send automatic emails to reporters when submission status changes.
+            </Label>
+          </div>
+        </div>
+        <div className="mt-5 flex flex-wrap items-center gap-4">
+          <Button variant="secondary" onClick={saveEmailSettings} disabled={savingEmailSettings || settings.isPending}>
+            {savingEmailSettings ? "Saving" : "Save email settings"}
+          </Button>
+          {emailSettingsMessage ? <p className="text-sm text-ink-soft" role="status">{emailSettingsMessage}</p> : null}
+        </div>
+      </section>
       <Tabs
         value={status}
         onValueChange={(value) => {

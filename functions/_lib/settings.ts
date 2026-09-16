@@ -1,6 +1,9 @@
 import type { D1Database } from "@cloudflare/workers-types";
 
 const SETTINGS_KEY = "submissions_locked";
+export const SUBMISSION_NOTIFICATION_EMAIL_KEY = "submission_notification_email";
+export const STATUS_EMAILS_ENABLED_KEY = "status_emails_enabled";
+export const DEFAULT_SUBMISSION_NOTIFICATION_EMAIL = "remix3030303@hotmail.com";
 
 export const TOTP_SECRET_KEY = "admin_totp_secret";
 export const TOTP_PENDING_KEY = "admin_totp_pending";

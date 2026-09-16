@@ -3,7 +3,7 @@ import { handle } from "hono/cloudflare-pages";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { CVE_ID_RE, GCVE_ID_RE, GNA_FULL_NAME, GNA_SHORT_NAME, formatGcveId } from "../../src/shared/gcve-id";
 import { buildGcveRecord } from "../../src/shared/record-builder";
-import { adminLoginSchema, statusUpdateSchema, submissionCreateSchema, totpCodeSchema } from "../../src/shared/schemas";
+import { adminLoginSchema, adminSettingsUpdateSchema, statusUpdateSchema, submissionCreateSchema, totpCodeSchema } from "../../src/shared/schemas";
 import type {
   AdminStats,
   AdminSubmissionDetail,
@@ -37,8 +37,18 @@ import {
   recordInput,
   toNdjson,
 } from "../_lib/records";
-import { TOTP_SECRET_KEY, TOTP_PENDING_KEY, getSetting, isSubmissionsLocked, setSetting, setSubmissionsLocked } from "../_lib/settings";
-import { sendEmail, statusChangeEmail } from "../_lib/email";
+import {
+  DEFAULT_SUBMISSION_NOTIFICATION_EMAIL,
+  STATUS_EMAILS_ENABLED_KEY,
+  SUBMISSION_NOTIFICATION_EMAIL_KEY,
+  TOTP_SECRET_KEY,
+  TOTP_PENDING_KEY,
+  getSetting,
+  isSubmissionsLocked,
+  setSetting,
+  setSubmissionsLocked,
+} from "../_lib/settings";
+import { emailSender, newSubmissionEmail, sendEmail, statusChangeEmail } from "../_lib/email";
 import { verifyTurnstile } from "../_lib/turnstile";
 import { generateTotpSecret, otpauthUri, verifyTotp } from "../_lib/totp";
 
@@ -307,6 +317,15 @@ app.post("/submissions", async (c) => {
     return c.json({ error: "Could not store the report. Try again in a moment." }, 500);
   }
 
+  try {
+    const notificationEmail =
+      (await getSetting(c.env.DB, SUBMISSION_NOTIFICATION_EMAIL_KEY)) ?? DEFAULT_SUBMISSION_NOTIFICATION_EMAIL;
+    const email = newSubmissionEmail(reference, input.title, input.reporter_name, c.env.SITE_URL);
+    await sendEmail(c.env.RESEND_API_KEY, c.env.RESEND_FROM, { to: notificationEmail, ...email });
+  } catch (error) {
+    console.error("New submission email failed", errorMessage(error));
+  }
+
   return c.json({ reference, secret_token: secretToken }, 201);
 });
 
@@ -544,17 +563,34 @@ app.use("/admin/settings", requireSession);
 app.get("/admin/settings", async (c) => {
   c.header("Cache-Control", "no-store");
   const locked = await isSubmissionsLocked(c.env.DB);
-  return c.json({ submissions_locked: locked });
+  return c.json({
+    submissions_locked: locked,
+    submission_notification_email:
+      (await getSetting(c.env.DB, SUBMISSION_NOTIFICATION_EMAIL_KEY)) ?? DEFAULT_SUBMISSION_NOTIFICATION_EMAIL,
+    status_emails_enabled: (await getSetting(c.env.DB, STATUS_EMAILS_ENABLED_KEY)) !== "0",
+    email_sender: emailSender(c.env.RESEND_FROM),
+  });
 });
 
 app.patch("/admin/settings", async (c) => {
-  const body = await c.req.json().catch(() => null);
-  const locked = typeof body?.submissions_locked === "boolean" ? body.submissions_locked : null;
-  if (typeof locked !== "boolean") {
-    return c.json({ error: "submissions_locked must be true or false" }, 400);
+  const parsed = adminSettingsUpdateSchema.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: "Invalid admin settings." }, 400);
+  if (parsed.data.submissions_locked !== undefined) await setSubmissionsLocked(c.env.DB, parsed.data.submissions_locked);
+  if (parsed.data.submission_notification_email !== undefined) {
+    await setSetting(c.env.DB, SUBMISSION_NOTIFICATION_EMAIL_KEY, parsed.data.submission_notification_email);
   }
-  await setSubmissionsLocked(c.env.DB, locked);
-  return c.json({ ok: true, submissions_locked: locked });
+  if (parsed.data.status_emails_enabled !== undefined) {
+    await setSetting(c.env.DB, STATUS_EMAILS_ENABLED_KEY, parsed.data.status_emails_enabled ? "1" : "0");
+  }
+  const locked = await isSubmissionsLocked(c.env.DB);
+  return c.json({
+    ok: true,
+    submissions_locked: locked,
+    submission_notification_email:
+      (await getSetting(c.env.DB, SUBMISSION_NOTIFICATION_EMAIL_KEY)) ?? DEFAULT_SUBMISSION_NOTIFICATION_EMAIL,
+    status_emails_enabled: (await getSetting(c.env.DB, STATUS_EMAILS_ENABLED_KEY)) !== "0",
+    email_sender: emailSender(c.env.RESEND_FROM),
+  });
 });
 
 // ---------------------------------------------------- admin two-factor (TOTP)
@@ -769,7 +805,7 @@ app.patch("/admin/submissions/:id", async (c) => {
     .run();
 
   try {
-    if (existing.reporter_email) {
+    if (existing.status !== parsed.data.status && existing.reporter_email && (await getSetting(c.env.DB, STATUS_EMAILS_ENABLED_KEY)) !== "0") {
       const email = statusChangeEmail(existing.reference, parsed.data.status, null, c.env.SITE_URL);
       await sendEmail(c.env.RESEND_API_KEY, c.env.RESEND_FROM, {
         to: existing.reporter_email,
@@ -814,7 +850,7 @@ app.post("/admin/submissions/:id/publish", async (c) => {
         c.env.DB.prepare("UPDATE submissions SET status = 'published', updated_at = ? WHERE id = ?").bind(nowIso, id),
       ]);
       try {
-        if (submission.reporter_email) {
+        if (submission.reporter_email && (await getSetting(c.env.DB, STATUS_EMAILS_ENABLED_KEY)) !== "0") {
           const email = statusChangeEmail(submission.reference, "published", gcveId, c.env.SITE_URL);
           await sendEmail(c.env.RESEND_API_KEY, c.env.RESEND_FROM, { to: submission.reporter_email, ...email });
         }

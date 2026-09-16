@@ -22,7 +22,23 @@ function DetailField({ term, children }: { term: string; children: ReactNode }) 
     </div>
   );
 }
-
+function AutomaticEmailDetails({
+  settings,
+  recipient,
+}: {
+  settings?: { email_sender: string; status_emails_enabled: boolean };
+  recipient: string | null;
+}) {
+  if (!settings) return null;
+  return (
+    <p className="border-l-2 border-surface-high bg-surface-dim px-3 py-2 text-xs text-ink-soft">
+      <span className="font-semibold text-ink">Automatic status email</span><br />
+      From: <span className="font-mono">{settings.email_sender}</span><br />
+      To: <span className="font-mono">{recipient ?? "No reporter email"}</span>
+      {!settings.status_emails_enabled ? " — sending disabled in settings." : ""}
+    </p>
+  );
+}
 export function SubmissionDetail() {
   const { id = "" } = useParams();
   const queryClient = useQueryClient();
@@ -38,7 +54,7 @@ export function SubmissionDetail() {
     queryFn: () => api.adminSubmission(id),
     retry: false,
   });
-
+  const settings = useQuery({ queryKey: ["admin", "settings"], queryFn: api.adminSettings });
   usePageTitle(submission.data ? `${submission.data.reference}` : "Submission");
 
   const invalidate = () => {
@@ -242,6 +258,7 @@ export function SubmissionDetail() {
             ) : (
               <div className="mt-4 space-y-5">
                 <div>
+                  <AutomaticEmailDetails settings={settings.data} recipient={data.reporterEmail} />
                   <Select value={currentStatus ?? undefined} onValueChange={(value) => setStatusDraft(value as EditableStatus)}>
                     <SelectTrigger aria-label="Submission status">
                       <SelectValue placeholder="Select a status" />
@@ -303,6 +320,7 @@ export function SubmissionDetail() {
             Publishing awards the next GCVE identifier and creates a permanent public record that is served to the GCVE
             ecosystem. This cannot be undone.
           </DialogDescription>
+          <AutomaticEmailDetails settings={settings.data} recipient={data.reporterEmail} />
           <div className="mt-6 flex justify-end gap-3">
             <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
               Cancel

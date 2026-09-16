@@ -134,7 +134,13 @@ export const totpCodeSchema = z.object({
 export const statusUpdateSchema = z.object({
   status: z.enum(EDITABLE_STATUSES),
 });
-
+export const adminSettingsUpdateSchema = z
+  .object({
+    submissions_locked: z.boolean().optional(),
+    submission_notification_email: z.string().trim().email("Enter a valid notification email").max(254).optional(),
+    status_emails_enabled: z.boolean().optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, "Provide at least one setting");
 export type SubmissionCreateInput = z.infer<typeof submissionCreateSchema>;
 export type GcveRecordCreateInput = z.infer<typeof gcveRecordCreateSchema>;
 export type AdminLoginInput = z.infer<typeof adminLoginSchema>;

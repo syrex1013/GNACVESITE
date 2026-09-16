@@ -121,7 +121,13 @@ export type GcveRecordPayload = {
   credits?: string;
   date_public?: string;
 };
-
+export type AdminSettings = {
+  submissions_locked: boolean;
+  submission_notification_email: string;
+  status_emails_enabled: boolean;
+  email_sender: string;
+};
+export type AdminSettingsUpdate = Pick<AdminSettings, "submissions_locked" | "submission_notification_email" | "status_emails_enabled">;
 export const api = {
   listGcves: (params: DisclosureQuery = {}) =>
     request<GcveListResponse>(
@@ -158,9 +164,9 @@ export const api = {
     request<AdminSubmissionListResponse>(
       `/api/admin/submissions${query({ status: params.status, q: params.q, page: params.page })}`,
     ),
-  adminSettings: () => request<{ submissions_locked: boolean }>("/api/admin/settings"),
-  updateAdminSettings: (payload: { submissions_locked: boolean }) =>
-    request<{ ok: true; submissions_locked: boolean }>("/api/admin/settings", {
+  adminSettings: () => request<AdminSettings>("/api/admin/settings"),
+  updateAdminSettings: (payload: Partial<AdminSettingsUpdate>) =>
+    request<AdminSettings & { ok: true }>("/api/admin/settings", {
       method: "PATCH",
       body: JSON.stringify(payload),
     }),
