@@ -97,8 +97,9 @@ describe("statusUpdateSchema", () => {
 });
 
 describe("adminLoginSchema", () => {
-  it("requires a password", () => {
-    expect(adminLoginSchema.safeParse({ password: "hunter2" }).success).toBe(true);
-    expect(adminLoginSchema.safeParse({ password: "" }).success).toBe(false);
+  it("requires an email and a password", () => {
+    expect(adminLoginSchema.safeParse({ email: "admin@example.com", password: "hunter2" }).success).toBe(true);
+    expect(adminLoginSchema.safeParse({ email: "admin@example.com", password: "" }).success).toBe(false);
+    expect(adminLoginSchema.safeParse({ password: "hunter2" }).success).toBe(false);
   });
 });

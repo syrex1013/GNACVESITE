@@ -52,7 +52,7 @@ const ENDPOINTS = [
     method: "GET",
     path: "/api/gcve/publication",
     description:
-      "BCP-03 pull endpoint returning full published records. Parameters: per_page (default 30, maximum 100), page, date_sort (published or updated), sort_order, since, cwe, product, source.",
+      "BCP-03 pull endpoint returning full published records. Parameters: per_page (default 30, maximum 100), page, date_sort (published, updated, or reserved), sort_order, since, cwe, product, vendor, source, assigner.",
     format: "JSON array of GCVE BCP-05 records",
   },
   {
@@ -60,6 +60,13 @@ const ENDPOINTS = [
     path: "/dumps/gna-115.ndjson",
     description: "Static dump of every published record, one JSON document per line.",
     format: "NDJSON",
+  },
+  {
+    method: "GET",
+    path: "/api/gcve/sync, /api/gcve/health",
+    description:
+      "Synchronization entry point and liveness probe for collectors: canonical pull URLs, record count, and the newest publication.",
+    format: "JSON object",
   },
   {
     method: "GET",
@@ -169,19 +176,21 @@ export function Policy() {
               Reports are triaged within five business days. You receive a reference identifier to quote in
               correspondence.
             </p>
-            <a
-              href="/request"
-              className="mt-5 inline-flex h-10 items-center justify-center bg-brand px-4 text-sm font-semibold text-on-brand transition-colors hover:bg-brand-hover"
-            >
-              Request an ID
-            </a>
-            <a
-              href="/.well-known/security.txt"
-              className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-info hover:text-ink"
-            >
-              security.txt
-              <ArrowUpRight size={14} weight="bold" />
-            </a>
+            <div className="mt-6 flex flex-col items-start gap-3">
+              <a
+                href="/request"
+                className="inline-flex h-10 items-center justify-center bg-brand px-4 text-sm font-semibold text-on-brand transition-colors hover:bg-brand-hover"
+              >
+                Request an ID
+              </a>
+              <a
+                href="/.well-known/security.txt"
+                className="inline-flex items-center gap-1 text-sm font-semibold text-info hover:text-ink"
+              >
+                security.txt
+                <ArrowUpRight size={14} weight="bold" />
+              </a>
+            </div>
           </div>
         </aside>
       </div>

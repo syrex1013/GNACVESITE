@@ -50,10 +50,27 @@ export function AdminLayout() {
             </Button>
           </div>
         </div>
+        <nav aria-label="Admin sections" className="border-t border-surface-high">
+          <div className="container-x flex gap-1 overflow-x-auto">
+            <AdminNavLink to="/admin">Submissions</AdminNavLink>
+            <AdminNavLink to="/admin/ecosystem">Ecosystem</AdminNavLink>
+          </div>
+        </nav>
       </header>
       <main className="container-x flex-1 py-8">
         <Outlet />
       </main>
     </div>
+  );
+}
+
+function AdminNavLink({ to, children }: { to: string; children: string }) {
+  return (
+    <Link
+      to={to}
+      className="border-b-2 border-transparent px-4 py-3 text-sm font-semibold text-ink-soft transition-colors hover:text-brand aria-[current=page]:border-brand aria-[current=page]:text-brand"
+    >
+      {children}
+    </Link>
   );
 }

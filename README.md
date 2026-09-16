@@ -52,8 +52,9 @@ The site implements the three practices that matter to consumers of a decoupled 
 
 | Endpoint | Description |
 | --- | --- |
-| `GET /api/gcve/publication` | Pull endpoint returning full records. `per_page` (max 100), `page`, `date_sort`, `sort_order`, `since`, `cwe`, `product`, `source` |
+| `GET /api/gcve/publication` | Pull endpoint returning full records. `per_page` (max 100), `page`, `date_sort` (`published`, `updated`, `reserved`), `sort_order`, `since`, `cwe`, `product`, `vendor`, `source`, `assigner` |
 | `GET /dumps/gna-115.ndjson` | Static dump, one JSON record per line |
+| `GET /api/gcve/sync`, `GET /api/gcve/health` | Sync entry point with canonical pull URLs and record count, plus a liveness probe for collectors |
 | `GET /api/gcves` | Search the register (`q`, `severity`, `year`, `type`, `page`, `per_page`) |
 | `GET /api/gcves/{id}` | Single record by GCVE identifier or cross referenced CVE identifier |
 | `GET /api/gcve/api`, `/dump`, `/allocation`, `/pull-api` | The paths declared in the GCVE directory, kept in their original shapes for existing integrations |

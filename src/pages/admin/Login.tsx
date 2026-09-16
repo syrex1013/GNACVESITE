@@ -17,7 +17,10 @@ export function AdminLogin() {
   const queryClient = useQueryClient();
   const config = useQuery({ queryKey: ["public-config"], queryFn: api.publicConfig, staleTime: Infinity });
 
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [needsTwoFactor, setNeedsTwoFactor] = useState(false);
   const [token, setToken] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -28,10 +31,13 @@ export function AdminLogin() {
     setSubmitting(true);
 
     try {
-      await api.login(password, token || undefined);
+      await api.login(email, password, token || undefined, needsTwoFactor ? code : undefined);
       queryClient.setQueryData(["admin", "session"], { ok: true });
       navigate("/admin", { replace: true });
     } catch (caught) {
+      if (caught instanceof ApiError && caught.twoFactorRequired) {
+        setNeedsTwoFactor(true);
+      }
       setError(
         caught instanceof ApiError ? caught.message : "Sign in failed. Check your connection and try again.",
       );
@@ -53,6 +59,19 @@ export function AdminLogin() {
 
         <form onSubmit={signIn} className="mt-8 space-y-5">
           <div>
+            <Label htmlFor="email">Email</Label>
+            <div className="mt-2">
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+            </div>
+          </div>
+
+          <div>
             <Label htmlFor="password">Password</Label>
             <div className="mt-2">
               <Input
@@ -64,7 +83,22 @@ export function AdminLogin() {
               />
             </div>
           </div>
-
+          {needsTwoFactor ? (
+            <div>
+              <Label htmlFor="totp-code">Authenticator code</Label>
+              <div className="mt-2">
+                <Input
+                  id="totp-code"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="000000"
+                  maxLength={6}
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, ""))}
+                />
+              </div>
+            </div>
+          ) : null}
           {config.data?.turnstileSiteKey ? <TurnstileWidget siteKey={config.data.turnstileSiteKey} onToken={setToken} /> : null}
 
           {error ? (

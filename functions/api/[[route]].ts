@@ -3,7 +3,7 @@ import { handle } from "hono/cloudflare-pages";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import { CVE_ID_RE, GCVE_ID_RE, GNA_FULL_NAME, GNA_SHORT_NAME, formatGcveId } from "../../src/shared/gcve-id";
 import { buildGcveRecord } from "../../src/shared/record-builder";
-import { adminLoginSchema, statusUpdateSchema, submissionCreateSchema } from "../../src/shared/schemas";
+import { adminLoginSchema, statusUpdateSchema, submissionCreateSchema, totpCodeSchema } from "../../src/shared/schemas";
 import type {
   AdminStats,
   AdminSubmissionDetail,
@@ -37,7 +37,10 @@ import {
   recordInput,
   toNdjson,
 } from "../_lib/records";
+import { TOTP_SECRET_KEY, TOTP_PENDING_KEY, getSetting, isSubmissionsLocked, setSetting, setSubmissionsLocked } from "../_lib/settings";
+import { sendEmail, statusChangeEmail } from "../_lib/email";
 import { verifyTurnstile } from "../_lib/turnstile";
+import { generateTotpSecret, otpauthUri, verifyTotp } from "../_lib/totp";
 
 type ListRow = {
   id: string;
@@ -187,6 +190,13 @@ app.get("/gcves/:id", async (c) => {
 
   return c.json(detail);
 });
+app.get("/public-config", (c) => {
+  c.header("Cache-Control", "public, max-age=300");
+  return c.json({
+    turnstileSiteKey: c.env.TURNSTILE_SITE_KEY ?? null,
+  });
+});
+
 
 app.post("/submissions", async (c) => {
   const body = await c.req.json().catch(() => null);
@@ -200,13 +210,17 @@ app.post("/submissions", async (c) => {
 
   // Hidden field filled in: answer as if the report was accepted, store nothing.
   if (typeof payload.company_website === "string" && payload.company_website.trim() !== "") {
-    return c.json({ reference: `SUB-${now.getUTCFullYear()}-00000` }, 201);
+    return c.json({ reference: `SUB-${now.getUTCFullYear()}-00000`, secret_token: null }, 201);
   }
 
   const limit = await consumeRateLimit(c.env.DB, `submit:${ip}`, 5, now);
   if (!limit.allowed) {
     c.header("Retry-After", String(limit.retryAfterSeconds));
     return c.json({ error: "Too many reports from this address. Try again later." }, 429);
+  }
+
+  if (await isSubmissionsLocked(c.env.DB)) {
+    return c.json({ error: "New submissions are temporarily closed." }, 503);
   }
 
   const verified = await verifyTurnstile(
@@ -236,14 +250,15 @@ app.post("/submissions", async (c) => {
   const year = now.getUTCFullYear();
   const timestamp = now.toISOString();
   const id = crypto.randomUUID();
+  const secretToken = crypto.randomUUID();
   const ipHash = ip === "unknown" ? null : await sha256Hex(`gna115:${ip}`);
 
   const insert = c.env.DB.prepare(
     `INSERT INTO submissions (id, reference, reference_year, reference_seq, status, title, vulnerability_type,
        vendor, product, affected_versions, cve_id, cwe_ids, severity, cvss_score, cvss_vector, description,
        technical_details, poc, references_json, reporter_name, reporter_email, reporter_org, reporter_note,
-       ip_hash, created_at, updated_at)
-     SELECT ?, 'SUB-' || printf('%04d', ?) || '-' || printf('%05d', s.n + 1), ?, s.n + 1, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       secret_token, ip_hash, created_at, updated_at)
+     SELECT ?, 'SUB-' || printf('%04d', ?) || '-' || printf('%05d', s.n + 1), ?, s.n + 1, 'new', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
      FROM (SELECT COALESCE(MAX(reference_seq), 0) AS n FROM submissions WHERE reference_year = ?) s`,
   ).bind(
     id,
@@ -267,12 +282,12 @@ app.post("/submissions", async (c) => {
     input.reporter_email,
     input.reporter_org ?? null,
     input.reporter_note ?? null,
+    secretToken,
     ipHash,
     timestamp,
     timestamp,
     year,
   );
-
   let reference: string | null = null;
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 2 && reference === null; attempt += 1) {
@@ -292,12 +307,50 @@ app.post("/submissions", async (c) => {
     return c.json({ error: "Could not store the report. Try again in a moment." }, 500);
   }
 
-  return c.json({ reference }, 201);
+  return c.json({ reference, secret_token: secretToken }, 201);
 });
 
-app.get("/public-config", (c) => {
-  machineHeaders(c);
-  return c.json({ turnstileSiteKey: c.env.TURNSTILE_SITE_KEY ? c.env.TURNSTILE_SITE_KEY : null });
+const SECRET_TOKEN_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+app.get("/submissions/status/:token", async (c) => {
+  const token = c.req.param("token");
+  if (!SECRET_TOKEN_RE.test(token)) {
+    return c.json({ error: "Submission not found." }, 404);
+  }
+  const row = await c.env.DB.prepare(
+    "SELECT id, reference, status, title, vendor, product, created_at, updated_at FROM submissions WHERE secret_token = ?",
+  )
+    .bind(token)
+    .first<{
+      id: string;
+      reference: string;
+      status: SubmissionStatus;
+      title: string;
+      vendor: string;
+      product: string;
+      created_at: string;
+      updated_at: string;
+    }>();
+  if (!row) return c.json({ error: "Submission not found." }, 404);
+
+  const gcve =
+    row.status === "published"
+      ? await c.env.DB.prepare("SELECT id, published_at FROM gcves WHERE submission_id = ?")
+          .bind(row.id)
+          .first<{ id: string; published_at: string }>()
+      : null;
+
+  return c.json({
+    reference: row.reference,
+    status: row.status,
+    title: row.title,
+    vendor: row.vendor,
+    product: row.product,
+    submitted_at: row.created_at,
+    updated_at: row.updated_at,
+    gcve_id: gcve?.id ?? null,
+    published_at: gcve?.published_at ?? null,
+  });
 });
 
 // ------------------------------------------- GCVE directory (legacy shapes)
@@ -359,6 +412,43 @@ const dumpHandler = async (c: Context<AppEnv>) => {
 
 app.get("/gcve/pull-api/dumps/gna-115.ndjson", dumpHandler);
 
+app.get("/gcve/sync", async (c) => {
+  machineHeaders(c);
+  const siteUrl = c.env.SITE_URL.replace(/\/+$/, "");
+  const row = await c.env.DB
+    .prepare(
+      "SELECT g.year, g.seq, g.published_at FROM gcves g ORDER BY g.year DESC, g.seq DESC LIMIT 1",
+    )
+    .first<{ year: number; seq: number; published_at: string }>();
+  const count = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM gcves").first<{ total: number }>();
+
+  return c.json({
+    gna: 115,
+    short_name: GNA_SHORT_NAME,
+    pull_api: siteUrl,
+    publication: `${siteUrl}/api/gcve/publication`,
+    dump: `${siteUrl}/dumps/gna-115.ndjson`,
+    canonical_publication: `${siteUrl}/api/gcve/publication`,
+    canonical_dump: `${siteUrl}/dumps/gna-115.ndjson`,
+    count: Number(count?.total ?? 0),
+    latest_id: row ? formatGcveId(row.year, row.seq) : null,
+    latest_published: row?.published_at ?? null,
+    generated_at: new Date().toISOString(),
+  });
+});
+
+app.get("/gcve/health", async (c) => {
+  machineHeaders(c);
+  const count = await c.env.DB.prepare("SELECT COUNT(*) AS total FROM gcves").first<{ total: number }>();
+  return c.json({
+    gna: 115,
+    status: "ok",
+    records: Number(count?.total ?? 0),
+    format: "GCVE-115-YYYY-NNNNN",
+    generated_at: new Date().toISOString(),
+  });
+});
+
 // --------------------------------------------------------------- admin API
 
 app.use("/admin/*", async (c, next) => {
@@ -378,11 +468,15 @@ app.post("/admin/login", async (c) => {
   const body = await c.req.json().catch(() => null);
   const parsed = adminLoginSchema.safeParse(body);
   if (!parsed.success) {
-    return c.json({ error: "Enter the admin password." }, 400);
+    return c.json({ error: "Enter your email and password." }, 400);
   }
 
-  if (!c.env.ADMIN_PASSWORD_HASH) {
+  if (!c.env.ADMIN_PASSWORD_HASH || !c.env.ADMIN_EMAIL) {
     return c.json({ error: "Admin sign in is not configured on this deployment." }, 500);
+  }
+
+  if (parsed.data.email.trim().toLowerCase() !== c.env.ADMIN_EMAIL.trim().toLowerCase()) {
+    return c.json({ error: "Incorrect email or password." }, 401);
   }
 
   const now = new Date();
@@ -399,7 +493,17 @@ app.post("/admin/login", async (c) => {
   }
 
   if (!(await verifyPassword(parsed.data.password, c.env.ADMIN_PASSWORD_HASH))) {
-    return c.json({ error: "Incorrect password." }, 401);
+    return c.json({ error: "Incorrect email or password." }, 401);
+  }
+
+  const totpSecret = await getSetting(c.env.DB, TOTP_SECRET_KEY);
+  if (totpSecret) {
+    if (!parsed.data.code) {
+      return c.json({ error: "Enter the six-digit code from your authenticator app.", two_factor_required: true }, 401);
+    }
+    if (!(await verifyTotp(totpSecret, parsed.data.code))) {
+      return c.json({ error: "Incorrect authenticator code.", two_factor_required: true }, 401);
+    }
   }
 
   const token = createSessionToken();
@@ -434,6 +538,83 @@ app.post("/admin/logout", async (c) => {
 });
 
 app.get("/admin/session", (c) => c.json({ ok: true }));
+
+app.use("/admin/settings", requireSession);
+
+app.get("/admin/settings", async (c) => {
+  c.header("Cache-Control", "no-store");
+  const locked = await isSubmissionsLocked(c.env.DB);
+  return c.json({ submissions_locked: locked });
+});
+
+app.patch("/admin/settings", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const locked = typeof body?.submissions_locked === "boolean" ? body.submissions_locked : null;
+  if (typeof locked !== "boolean") {
+    return c.json({ error: "submissions_locked must be true or false" }, 400);
+  }
+  await setSubmissionsLocked(c.env.DB, locked);
+  return c.json({ ok: true, submissions_locked: locked });
+});
+
+// ---------------------------------------------------- admin two-factor (TOTP)
+
+app.use("/admin/2fa", requireSession);
+app.use("/admin/2fa/*", requireSession);
+
+app.get("/admin/2fa/status", async (c) => {
+  c.header("Cache-Control", "no-store");
+  const enabled = (await getSetting(c.env.DB, TOTP_SECRET_KEY)) !== null;
+  return c.json({ enabled });
+});
+
+/** Creates a pending secret the admin confirms with a live code. */
+app.post("/admin/2fa/setup", async (c) => {
+  const secret = generateTotpSecret();
+  await setSetting(c.env.DB, TOTP_PENDING_KEY, secret);
+  return c.json({ secret, otpauth_uri: otpauthUri(secret, c.env.ADMIN_EMAIL ?? "admin") });
+});
+
+app.post("/admin/2fa/enable", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = totpCodeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Enter the six-digit code from your authenticator app." }, 400);
+  }
+
+  const pending = await getSetting(c.env.DB, TOTP_PENDING_KEY);
+  if (!pending) {
+    return c.json({ error: "No pending setup. Start two-factor setup again." }, 400);
+  }
+  if (!(await verifyTotp(pending, parsed.data.code))) {
+    return c.json({ error: "Incorrect authenticator code." }, 401);
+  }
+
+  await setSetting(c.env.DB, TOTP_SECRET_KEY, pending);
+  await setSetting(c.env.DB, TOTP_PENDING_KEY, null);
+  return c.json({ ok: true, enabled: true });
+});
+
+/** Requires a valid code so a stolen browser session cannot silently remove the factor. */
+app.post("/admin/2fa/disable", async (c) => {
+  const body = await c.req.json().catch(() => null);
+  const parsed = totpCodeSchema.safeParse(body);
+  if (!parsed.success) {
+    return c.json({ error: "Enter the six-digit code from your authenticator app." }, 400);
+  }
+
+  const secret = await getSetting(c.env.DB, TOTP_SECRET_KEY);
+  if (!secret) {
+    return c.json({ ok: true, enabled: false });
+  }
+  if (!(await verifyTotp(secret, parsed.data.code))) {
+    return c.json({ error: "Incorrect authenticator code." }, 401);
+  }
+
+  await setSetting(c.env.DB, TOTP_SECRET_KEY, null);
+  await setSetting(c.env.DB, TOTP_PENDING_KEY, null);
+  return c.json({ ok: true, enabled: false });
+});
 
 app.get("/admin/stats", async (c) => {
   c.header("Cache-Control", "no-store");
@@ -575,9 +756,9 @@ app.patch("/admin/submissions/:id", async (c) => {
   }
 
   const id = c.req.param("id");
-  const existing = await c.env.DB.prepare("SELECT status FROM submissions WHERE id = ?")
+  const existing = await c.env.DB.prepare("SELECT id, reference, status, reporter_email FROM submissions WHERE id = ?")
     .bind(id)
-    .first<{ status: SubmissionStatus }>();
+    .first<{ id: string; reference: string; status: SubmissionStatus; reporter_email: string | null }>();
   if (!existing) return c.json({ error: "Submission not found." }, 404);
   if (existing.status === "published") {
     return c.json({ error: "Published submissions keep their status." }, 409);
@@ -586,6 +767,18 @@ app.patch("/admin/submissions/:id", async (c) => {
   await c.env.DB.prepare("UPDATE submissions SET status = ?, updated_at = ? WHERE id = ?")
     .bind(parsed.data.status, new Date().toISOString(), id)
     .run();
+
+  try {
+    if (existing.reporter_email) {
+      const email = statusChangeEmail(existing.reference, parsed.data.status, null, c.env.SITE_URL);
+      await sendEmail(c.env.RESEND_API_KEY, c.env.RESEND_FROM, {
+        to: existing.reporter_email,
+        ...email,
+      });
+    }
+  } catch (error) {
+    console.error("Status email failed", errorMessage(error));
+  }
 
   return c.json({ status: parsed.data.status });
 });
@@ -620,6 +813,14 @@ app.post("/admin/submissions/:id/publish", async (c) => {
         ).bind(gcveId, year, Number(highest?.max_seq ?? 0) + 1, id, submission.cve_id, JSON.stringify(record), nowIso, nowIso),
         c.env.DB.prepare("UPDATE submissions SET status = 'published', updated_at = ? WHERE id = ?").bind(nowIso, id),
       ]);
+      try {
+        if (submission.reporter_email) {
+          const email = statusChangeEmail(submission.reference, "published", gcveId, c.env.SITE_URL);
+          await sendEmail(c.env.RESEND_API_KEY, c.env.RESEND_FROM, { to: submission.reporter_email, ...email });
+        }
+      } catch (error) {
+        console.error("Publish email failed", errorMessage(error));
+      }
       return c.json({ gcveId, record });
     } catch (error) {
       lastError = error;

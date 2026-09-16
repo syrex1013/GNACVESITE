@@ -2,11 +2,13 @@ import type { Context } from "hono";
 import type { AppEnv } from "./env";
 
 export const PUBLIC_CACHE = "public, max-age=300";
+export const PUBLICATION_CACHE = "public, max-age=60";
 
 /** Machine readable endpoints are open to the ecosystem and cached at the edge. */
-export function machineHeaders(c: Context<AppEnv>): void {
+export function machineHeaders(c: Context<AppEnv>, cache: string = PUBLIC_CACHE): void {
   c.header("Access-Control-Allow-Origin", "*");
-  c.header("Cache-Control", PUBLIC_CACHE);
+  c.header("Cache-Control", cache);
+  c.header("Vary", "Accept-Encoding");
 }
 
 export function integerParam(value: string | null, fallback: number, min: number, max: number): number {

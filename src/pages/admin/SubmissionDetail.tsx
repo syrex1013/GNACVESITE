@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api, ApiError } from "@/lib/api";
+import { downloadJson } from "@/lib/download";
 import { formatCvss, formatDateTime } from "@/lib/format";
 import { usePageTitle } from "@/lib/usePageTitle";
 import { EDITABLE_STATUSES, type EditableStatus } from "@/shared/types";
@@ -100,13 +101,7 @@ export function SubmissionDetail() {
 
   const downloadRecord = () => {
     if (!record || !gcveId) return;
-    const blob = new Blob([`${JSON.stringify(record, null, 2)}\n`], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `${gcveId}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    downloadJson(`${gcveId}.json`, record);
   };
 
   return (

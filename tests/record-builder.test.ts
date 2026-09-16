@@ -113,4 +113,15 @@ describe("buildGcveRecord", () => {
     expect(serialized).not.toContain("assignerOrgId");
     expect(serialized).not.toContain("shortName");
   });
+
+  it("carries published, updated, and reserved lifecycle dates", () => {
+    const record = buildGcveRecord({ ...baseInput }, "GCVE-115-2026-00001", PUBLISHED_AT, PUBLISHED_AT);
+
+    expect(record.cveMetadata).toMatchObject({
+      datePublished: PUBLISHED_AT,
+      dateUpdated: PUBLISHED_AT,
+      dateReserved: PUBLISHED_AT,
+    });
+    expect(validateRecord(record)).toBe(true);
+  });
 });

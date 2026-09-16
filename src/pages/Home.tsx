@@ -1,13 +1,13 @@
-import { ArrowRight, ArrowUpRight, Check, Copy } from "@phosphor-icons/react";
+import { ArrowRight, ArrowUpRight } from "@phosphor-icons/react";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import heroImage from "@/assets/hero-network.webp";
-import { SeverityBadge } from "@/components/SeverityBadge";
+import { CopyEndpoint } from "@/components/CopyEndpoint";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { SeverityBadge } from "@/components/SeverityBadge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
+import heroImage from "@/assets/hero-network.webp";
 import { formatDate } from "@/lib/format";
 import { usePageTitle } from "@/lib/usePageTitle";
 
@@ -26,7 +26,7 @@ const STEPS = [
   },
 ];
 
-const ENDPOINTS = ["/api/gcve/publication", "/dumps/gna-115.ndjson", "/api/gcves/{id}"];
+const ENDPOINTS = ["/api/gcve/publication", "/dumps/gna-115.ndjson", "/api/gcve/sync", "/api/gcves/{id}"];
 
 const AUTHORITY_FACTS = [
   { term: "Authority ID", detail: "115" },
@@ -34,39 +34,6 @@ const AUTHORITY_FACTS = [
   { term: "Full name", detail: 'Adrian "syrex1013" Dacka' },
   { term: "CPE vendor name", detail: "syrex1013" },
 ];
-
-function CopyEndpoint({ path }: { path: string }) {
-  const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const copy = async () => {
-    if (!navigator.clipboard) return;
-    await navigator.clipboard.writeText(`${window.location.origin}${path}`);
-    setCopied(true);
-  };
-
-  return (
-    <li className="flex items-center justify-between gap-4 border-b border-surface-mid py-3">
-      <code className="text-sm text-ink">
-        <span className="text-outline">GET </span>
-        {path}
-      </code>
-      <button
-        type="button"
-        onClick={copy}
-        aria-label={`Copy ${path}`}
-        className="p-2 text-outline transition-colors hover:text-brand"
-      >
-        {copied ? <Check size={16} weight="bold" className="text-success" /> : <Copy size={16} />}
-      </button>
-    </li>
-  );
-}
 
 export function Home() {
   usePageTitle("GNA-115 · Adrian Dacka · GCVE Vulnerability Disclosures");
@@ -223,7 +190,8 @@ export function Home() {
             <h2 className="headline-lg">Machine-readable data</h2>
             <p className="mt-6 max-w-[60ch] text-ink-soft">
               Every published record is available as CVE JSON 5.1 with the GCVE extension, per GCVE BCP-05. The pull
-              API follows BCP-03 and is aggregated by db.gcve.eu.
+              API follows BCP-03, so collectors pick up each publication automatically; the sync endpoint reports
+              exactly what a runner needs to stay current.
             </p>
             <Link to="/policy#api" className="link-body mt-4 inline-block text-sm font-semibold">
               Read the API reference

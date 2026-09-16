@@ -1,6 +1,8 @@
 import { toLegacyVulnerability, type LegacyVulnerability } from "../../src/shared/legacy-mapper";
+import { parsePublicationQuery, type PublicationQuery } from "../../src/shared/publication";
 import type { GcveRecord, Severity, SubmissionRecordInput, SubmissionStatus } from "../../src/shared/types";
-import { integerParam } from "./http";
+
+export { parsePublicationQuery, type PublicationQuery };
 
 export type SubmissionRow = {
   id: string;
@@ -26,6 +28,7 @@ export type SubmissionRow = {
   reporter_email: string | null;
   reporter_org: string | null;
   reporter_note: string | null;
+  secret_token: string | null;
   ip_hash: string | null;
   created_at: string;
   updated_at: string;
@@ -102,6 +105,7 @@ export async function loadSubmission(db: D1Database, id: string): Promise<Submis
   return db.prepare("SELECT * FROM submissions WHERE id = ?").bind(id).first<SubmissionRow>();
 }
 
+
 const toLegacyEntry = (row: PublishedRow): LegacyVulnerability =>
   toLegacyVulnerability({
     gcveId: row.gcve_id,
@@ -137,43 +141,13 @@ export async function publishedEntries(db: D1Database): Promise<LegacyVulnerabil
   return rows.map(toLegacyEntry);
 }
 
-export type PublicationQuery = {
-  perPage: number;
-  page: number;
-  dateSort: "published" | "updated";
-  sortOrder: "asc" | "desc";
-  since: string | null;
-  cwe: string | null;
-  product: string | null;
-  source: string | null;
-};
-
-const normalizeSince = (value: string | null): string | null => {
-  if (!value) return null;
-  const parsed = new Date(value.length === 10 ? `${value}T00:00:00.000Z` : value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-};
-
-/** BCP-03 pull API query parameters. */
-export function parsePublicationQuery(url: URL): PublicationQuery {
-  const params = url.searchParams;
-  return {
-    perPage: integerParam(params.get("per_page"), 30, 1, 100),
-    page: integerParam(params.get("page"), 1, 1, 100000),
-    dateSort: params.get("date_sort")?.toLowerCase() === "updated" ? "updated" : "published",
-    sortOrder: params.get("sort_order")?.toLowerCase() === "asc" ? "asc" : "desc",
-    since: normalizeSince(params.get("since")),
-    cwe: params.get("cwe")?.trim() || null,
-    product: params.get("product")?.trim() || null,
-    source: params.get("source")?.trim() || null,
-  };
-}
-
 const publicationFilter = (query: PublicationQuery): { clause: string; params: (string | number)[] } => {
   const where: string[] = [];
   const params: (string | number)[] = [];
 
   if (query.since) {
+    // `since` is inclusive: it retrieves vulnerabilities published or updated
+    // after the date, matching the reference aggregation behavior for dates.
     where.push("(g.published_at >= ? OR g.updated_at >= ?)");
     params.push(query.since, query.since);
   }
@@ -182,8 +156,17 @@ const publicationFilter = (query: PublicationQuery): { clause: string; params: (
     params.push(query.cwe.toUpperCase());
   }
   if (query.product) {
-    where.push("s.product LIKE ?");
-    params.push(`%${query.product}%`);
+    where.push("s.product LIKE ? ESCAPE '\\'");
+    params.push(`%${query.product.replace(/[\\%_]/g, (match) => `\\${match}`)}%`);
+  }
+  if (query.vendor) {
+    where.push("s.vendor LIKE ? ESCAPE '\\'");
+    params.push(`%${query.vendor.replace(/[\\%_]/g, (match) => `\\${match}`)}%`);
+  }
+  if (query.assigner) {
+    // Single authority deployment: only its own short name matches.
+    where.push("(' ' || s.vendor || ' ' || s.product || ' GNA-115 GNA 115 Adrian Dacka ') LIKE ? ESCAPE '\\'");
+    params.push(`%${query.assigner.replace(/[\\%_]/g, (match) => `\\${match}`)}%`);
   }
   if (query.source) {
     const source = query.source.toUpperCase();
@@ -194,27 +177,34 @@ const publicationFilter = (query: PublicationQuery): { clause: string; params: (
   return { clause: where.length > 0 ? `WHERE ${where.join(" AND ")}` : "", params };
 };
 
+const publicationOrder = (query: PublicationQuery): string => {
+  const direction = query.sortOrder === "asc" ? "ASC" : "DESC";
+  if (query.dateSort === "updated") return `g.updated_at ${direction}, g.published_at ${direction}`;
+  if (query.dateSort === "reserved") return `g.year ${direction}, g.seq ${direction}, g.published_at ${direction}`;
+  if (query.dateSort === "published") return `g.published_at ${direction}, g.seq ${direction}`;
+  return `g.published_at ${direction}, g.updated_at ${direction}, g.seq ${direction}`;
+};
+
 /** Records returned by the BCP-03 REST publication endpoint. */
 export async function publicationRecords(db: D1Database, query: PublicationQuery): Promise<GcveRecord[]> {
   const filter = publicationFilter(query);
-  const dateColumn = query.dateSort === "updated" ? "g.updated_at" : "g.published_at";
   const rows = await db
     .prepare(
       `SELECT g.record_json FROM gcves g JOIN submissions s ON s.id = g.submission_id ${filter.clause} ` +
-        `ORDER BY ${dateColumn} ${query.sortOrder === "asc" ? "ASC" : "DESC"}, g.seq DESC LIMIT ? OFFSET ?`,
+        `ORDER BY ${publicationOrder(query)} LIMIT ? OFFSET ?`,
     )
     .bind(...filter.params, query.perPage, (query.page - 1) * query.perPage)
     .all<{ record_json: string }>();
-  return rows.results.map((row) => parseRecord(row.record_json));
-}
+  return rows.results.map((row: { record_json: string }) => parseRecord(row.record_json));
+};
 
 /** Every published record, for the BCP-03 static dump. */
 export async function allPublishedRecords(db: D1Database): Promise<GcveRecord[]> {
   const rows = await db
-    .prepare("SELECT record_json FROM gcves ORDER BY year DESC, seq DESC")
+    .prepare("SELECT record_json FROM gcves ORDER BY published_at DESC, updated_at DESC, seq DESC")
     .all<{ record_json: string }>();
-  return rows.results.map((row) => parseRecord(row.record_json));
-}
+  return rows.results.map((row: { record_json: string }) => parseRecord(row.record_json));
+};
 
 export const toNdjson = (records: GcveRecord[]): string =>
   records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;

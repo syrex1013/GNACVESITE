@@ -1,7 +1,7 @@
-import { ArrowLeft, ArrowRight, MagnifyingGlass } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft, ArrowRight, Lock, LockOpen, MagnifyingGlass, Plus } from "@phosphor-icons/react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { SeverityBadge } from "@/components/SeverityBadge";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TBody, TD, TH, THead, TR } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { TwoFactorCard } from "@/components/TwoFactorCard";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import { usePageTitle } from "@/lib/usePageTitle";
-
 const TABS = [
   { value: "all", label: "All" },
   { value: "new", label: "New" },
@@ -25,12 +25,14 @@ const TABS = [
 export function Dashboard() {
   usePageTitle("Submissions");
 
+  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [status, setStatus] = useState("all");
   const [draft, setDraft] = useState("");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-
+  const [locked, setLocked] = useState<boolean | null>(null);
+  const [togglingLock, setTogglingLock] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => {
       setSearch(draft.trim());
@@ -40,6 +42,28 @@ export function Dashboard() {
   }, [draft]);
 
   const stats = useQuery({ queryKey: ["admin", "stats"], queryFn: api.adminStats });
+  const settings = useQuery({ queryKey: ["admin", "settings"], queryFn: api.adminSettings });
+
+  const toggleLock = async () => {
+    if (locked === null) return;
+    setTogglingLock(true);
+    try {
+      const updated = await api.updateAdminSettings({ submissions_locked: !locked });
+      setLocked(updated.submissions_locked);
+      queryClient.setQueryData(["admin", "settings"], updated);
+    } catch {
+      alert("Could not update lock state");
+    } finally {
+      setTogglingLock(false);
+    }
+  };
+
+  useEffect(() => {
+    if (settings.data?.submissions_locked !== undefined) {
+      setLocked(settings.data.submissions_locked);
+    }
+  }, [settings.data]);
+
   const list = useQuery({
     queryKey: ["admin", "submissions", status, search, page],
     queryFn: () => api.adminSubmissions({ status: status === "all" ? undefined : status, q: search, page }),
@@ -59,19 +83,36 @@ export function Dashboard() {
               : "Loading counts…"}
           </p>
         </div>
-        <div className="relative w-full max-w-sm">
-          <MagnifyingGlass
-            size={18}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline"
-            aria-hidden="true"
-          />
-          <Input
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Search reference or title"
-            aria-label="Search submissions"
-            className="pl-10"
-          />
+        <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto">
+          <div className="relative w-full max-w-sm flex-1">
+            <MagnifyingGlass
+              size={18}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-outline"
+              aria-hidden="true"
+            />
+            <Input
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Search reference or title"
+              aria-label="Search submissions"
+              className="pl-10"
+            />
+          </div>
+          <Button
+            variant="secondary"
+            className={locked ? "border-danger text-danger hover:bg-danger/10" : ""}
+            onClick={toggleLock}
+            disabled={togglingLock || locked === null}
+          >
+            {locked ? <Lock size={16} weight="bold" /> : <LockOpen size={16} weight="bold" />}
+            {locked ? "Unlock" : "Lock"}
+          </Button>
+          <Button asChild>
+            <Link to="/admin/records/new">
+              <Plus size={16} weight="bold" />
+              Add GCVE record
+            </Link>
+          </Button>
         </div>
       </div>
 
@@ -146,7 +187,9 @@ export function Dashboard() {
             </Table>
           </div>
         )}
+
       </div>
+      <TwoFactorCard />
 
       <div className="mt-6 flex items-center justify-between">
         <p className="text-sm text-ink-soft">

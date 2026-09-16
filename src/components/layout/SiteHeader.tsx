@@ -8,6 +8,7 @@ import { cn } from "@/lib/cn";
 
 const NAV_ITEMS = [
   { label: "Disclosures", to: "/disclosures" },
+  { label: "Status", to: "/status" },
   { label: "Policy", to: "/policy" },
   { label: "API", to: "/policy#api" },
 ];

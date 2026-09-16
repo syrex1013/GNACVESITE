@@ -31,6 +31,7 @@ export function buildGcveRecord(
   input: SubmissionRecordInput,
   gcveId: string,
   publishedAtIso: string,
+  updatedAtIso: string = publishedAtIso,
 ): GcveRecord {
   const cweIds = (input.cweIds ?? "").split(/\s+/).filter(Boolean);
   const cna: GcveRecord["containers"]["cna"] = {
@@ -102,6 +103,8 @@ export function buildGcveRecord(
       vulnId: gcveId,
       state: "PUBLISHED",
       datePublished: publishedAtIso,
+      dateUpdated: updatedAtIso,
+      dateReserved: publishedAtIso,
       ...(input.cveId ? { cveId: input.cveId } : {}),
     },
   };

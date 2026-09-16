@@ -120,6 +120,35 @@ export type GcveListResponse = {
   perPage: number;
 };
 
+/** Response of POST /api/admin/gcves. */
+export type GcveCreateResponse = {
+  gcveId: string;
+  reference: string;
+  record: GcveRecord;
+};
+
+export type GcveSyncResponse = {
+  gna: 115;
+  short_name: string;
+  pull_api: string;
+  publication: string;
+  dump: string;
+  canonical_publication: string;
+  canonical_dump: string;
+  count: number;
+  latest_id: string | null;
+  latest_published: string | null;
+  generated_at: string;
+};
+
+export type GcveHealthResponse = {
+  gna: 115;
+  status: "ok";
+  records: number;
+  format: string;
+  generated_at: string;
+};
+
 export type GcveDetailResponse = {
   id: string;
   record: GcveRecord;
@@ -162,6 +191,18 @@ export type AdminSubmissionListResponse = {
   total: number;
   page: number;
   perPage: number;
+};
+
+export type SubmissionStatusResponse = {
+  reference: string;
+  status: SubmissionStatus;
+  title: string;
+  vendor: string;
+  product: string;
+  submitted_at: string;
+  updated_at: string;
+  gcve_id: string | null;
+  published_at: string | null;
 };
 
 export type AdminStats = {

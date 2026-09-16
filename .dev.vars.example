@@ -1,10 +1,18 @@
 # Copy to .dev.vars for local development (never commit .dev.vars).
 #
-# Password hash for the admin panel. Generate with:
+# Admin sign-in: exact email must match and the password must verify against
+# the PBKDF2 hash. Generate the hash with:
 #   npm run hash-password -- "your-password"
+ADMIN_EMAIL=""
 ADMIN_PASSWORD_HASH=""
 
 # Cloudflare Turnstile. Leave both unset locally to skip bot verification.
 # TURNSTILE_SITE_KEY is exposed publicly via /api/public-config.
 TURNSTILE_SITE_KEY=""
 TURNSTILE_SECRET_KEY=""
+
+# Reporter status emails (Resend). Leave RESEND_API_KEY unset to disable
+# sending locally. Verify a domain in Resend and set RESEND_FROM to
+# "GNA-115 Disclosures <noreply@your-domain>" in production.
+RESEND_API_KEY=""
+RESEND_FROM=""

@@ -1,32 +1,27 @@
-import { CircleNotch, SealCheck, Trash } from "@phosphor-icons/react";
-import { useQuery } from "@tanstack/react-query";
+import { ArrowUpRight, CircleNotch, Plus, SealCheck, Trash } from "@phosphor-icons/react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Controller, useFieldArray, useForm, type Path } from "react-hook-form";
 import { Link } from "react-router-dom";
 import { Field, SectionHeading } from "@/components/FormField";
-import { TurnstileWidget } from "@/components/TurnstileWidget";
-import { Reveal, Stagger, StaggerItem } from "@/components/motion/Reveal";
+import { Stagger, StaggerItem } from "@/components/motion/Reveal";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input, Textarea } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { api, ApiError, type FieldIssue, type SubmissionPayload } from "@/lib/api";
+import { api, ApiError, type FieldIssue, type GcveRecordPayload } from "@/lib/api";
+import { downloadJson } from "@/lib/download";
 import { severityLabel } from "@/lib/format";
 import { usePageTitle } from "@/lib/usePageTitle";
-import { submissionCreateSchema } from "@/shared/schemas";
-import { SEVERITIES, VULNERABILITY_TYPES } from "@/shared/types";
+import { gcveRecordCreateSchema } from "@/shared/schemas";
+import { SEVERITIES, VULNERABILITY_TYPES, type GcveCreateResponse } from "@/shared/types";
 
 type FormValues = {
-  reporter_name: string;
-  reporter_email: string;
-  reporter_org: string;
   title: string;
   vulnerability_type: string;
+  severity: string;
   vendor: string;
   product: string;
   affected_versions: string;
-  severity: string;
   cvss_score: string;
   cvss_vector: string;
   cve_id: string;
@@ -35,20 +30,17 @@ type FormValues = {
   technical_details: string;
   poc: string;
   references: { url: string }[];
-  consent: boolean;
-  company_website: string;
+  credits: string;
+  date_public: string;
 };
 
 const EMPTY_FORM: FormValues = {
-  reporter_name: "",
-  reporter_email: "",
-  reporter_org: "",
   title: "",
   vulnerability_type: "",
+  severity: "",
   vendor: "",
   product: "",
   affected_versions: "",
-  severity: "",
   cvss_score: "",
   cvss_vector: "",
   cve_id: "",
@@ -57,31 +49,31 @@ const EMPTY_FORM: FormValues = {
   technical_details: "",
   poc: "",
   references: [{ url: "" }],
-  consent: false,
-  company_website: "",
+  credits: "",
+  date_public: "",
 };
 
-export function RequestForm() {
-  usePageTitle("Request a GCVE identifier");
+/**
+ * Allocates a GCVE identifier straight away, for advisories the authority
+ * writes itself rather than ones submitted through the public form.
+ */
+export function NewRecord() {
+  usePageTitle("Add GCVE record");
 
-  const config = useQuery({ queryKey: ["public-config"], queryFn: api.publicConfig, staleTime: Infinity });
-  const [token, setToken] = useState("");
-  const [turnstileKey, setTurnstileKey] = useState(0);
+  const queryClient = useQueryClient();
   const [banner, setBanner] = useState<string | null>(null);
-  const [reference, setReference] = useState<string | null>(null);
-  const [secretToken, setSecretToken] = useState<string | null>(null);
+  const [created, setCreated] = useState<GcveCreateResponse | null>(null);
 
   const {
     register,
     handleSubmit,
     control,
+    reset,
     setError,
-    watch,
     formState: { errors, isSubmitting },
-  } = useForm<FormValues>({ defaultValues: EMPTY_FORM, mode: "onSubmit" });
+  } = useForm<FormValues>({ defaultValues: EMPTY_FORM });
 
   const references = useFieldArray({ control, name: "references" });
-  const descriptionLength = watch("description").length;
 
   const applyIssues = (issues: FieldIssue[]) => {
     for (const issue of issues) {
@@ -93,16 +85,13 @@ export function RequestForm() {
   const onSubmit = handleSubmit(async (values) => {
     setBanner(null);
 
-    const payload: SubmissionPayload = {
-      reporter_name: values.reporter_name,
-      reporter_email: values.reporter_email,
-      reporter_org: values.reporter_org,
+    const payload: GcveRecordPayload = {
       title: values.title,
       vulnerability_type: values.vulnerability_type,
+      severity: values.severity,
       vendor: values.vendor,
       product: values.product,
       affected_versions: values.affected_versions,
-      severity: values.severity,
       cvss_score: values.cvss_score,
       cvss_vector: values.cvss_vector,
       cve_id: values.cve_id,
@@ -111,69 +100,71 @@ export function RequestForm() {
       technical_details: values.technical_details,
       poc: values.poc,
       references: values.references.map((entry) => entry.url).filter((url) => url.trim() !== ""),
-      consent: values.consent,
-      turnstile_token: token || undefined,
-      company_website: values.company_website,
+      credits: values.credits,
+      date_public: values.date_public,
     };
 
-    const local = submissionCreateSchema.safeParse(payload);
+    const local = gcveRecordCreateSchema.safeParse(payload);
     if (!local.success) {
       applyIssues(local.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })));
-      setBanner("Check the highlighted fields before submitting.");
+      setBanner("Check the highlighted fields before allocating.");
       return;
     }
 
     try {
-      const result = await api.submitReport(payload);
-      setReference(result.reference);
-      setSecretToken(result.secret_token);
+      const result = await api.createGcve(payload);
+      setCreated(result);
+      void queryClient.invalidateQueries({ queryKey: ["admin"] });
+      void queryClient.invalidateQueries({ queryKey: ["gcves"] });
     } catch (error) {
       if (error instanceof ApiError) {
         applyIssues(error.issues);
         setBanner(error.message);
       } else {
-        setBanner("The report could not be sent. Check your connection and try again.");
+        setBanner("The record could not be created. Check your connection and try again.");
       }
-      setToken("");
-      setTurnstileKey((value) => value + 1);
     }
   });
 
-  if (reference) {
+  if (created) {
     return (
-      <div className="container-x py-20">
-        <Stagger className="mx-auto max-w-2xl border border-surface-high p-10 text-center">
+      <div className="mx-auto max-w-2xl">
+        <Stagger className="border border-surface-high bg-surface p-8">
           <StaggerItem>
-            <SealCheck size={44} weight="fill" className="mx-auto text-success" aria-hidden="true" />
+            <SealCheck size={40} weight="fill" className="text-success" aria-hidden="true" />
           </StaggerItem>
           <StaggerItem>
-            <h1 className="headline-lg mt-6">Report received</h1>
+            <h1 className="headline-lg mt-4">Identifier allocated</h1>
           </StaggerItem>
           <StaggerItem>
-            <p className="font-mono text-2xl font-bold text-brand mt-6">{reference}</p>
-          </StaggerItem>
-          <StaggerItem>
-            <p className="mt-6 text-ink-soft">
-              Keep this reference for correspondence. You will be contacted at the address provided. Most reports are
-              triaged within five business days.
+            <p className="mt-4 font-mono text-2xl font-bold text-brand">{created.gcveId}</p>
+            <p className="mt-2 text-sm text-ink-soft">
+              Intake reference <span className="font-mono">{created.reference}</span>. The record is published and served
+              through the GCVE pull API immediately.
             </p>
           </StaggerItem>
-          {secretToken ? (
-            <StaggerItem>
-              <p className="mt-4 text-sm text-ink-soft">
-                Track this report privately:{" "}
-                <Link className="font-semibold text-brand underline" to={`/status/${secretToken}`}>
-                  open your status link
-                </Link>
-                . Save this address. It is the only way to view the report before publication.
-              </p>
-              <p className="mt-2 break-all font-mono text-xs text-outline">{secretToken}</p>
-            </StaggerItem>
-          ) : null}
           <StaggerItem>
-            <Button asChild variant="secondary" className="mt-8">
-              <Link to="/disclosures">Browse disclosures</Link>
-            </Button>
+            <div className="mt-6 flex flex-wrap gap-3">
+              <Button asChild variant="secondary">
+                <Link to={`/disclosures/${created.gcveId}`}>
+                  View public record
+                  <ArrowUpRight size={16} weight="bold" />
+                </Link>
+              </Button>
+              <Button variant="ghost" onClick={() => downloadJson(`${created.gcveId}.json`, created.record)}>
+                Download JSON
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setCreated(null);
+                  reset(EMPTY_FORM);
+                }}
+              >
+                <Plus size={16} weight="bold" />
+                Add another record
+              </Button>
+            </div>
           </StaggerItem>
         </Stagger>
       </div>
@@ -181,33 +172,17 @@ export function RequestForm() {
   }
 
   return (
-    <div className="container-x py-14">
-      <Reveal>
-        <h1 className="display-1 max-w-[26ch]">Request a GCVE identifier</h1>
-        <p className="body-lg mt-4 max-w-[62ch] text-ink-soft">
-          Report a vulnerability to GNA-115. If the report is accepted, it is published with a GCVE identifier in the
-          public register.
-        </p>
-      </Reveal>
+    <div className="mx-auto max-w-3xl">
+      <h1 className="headline-lg">Add GCVE record</h1>
+      <p className="mt-2 max-w-[70ch] text-sm text-ink-soft">
+        Allocates the next free GCVE-115 identifier for the current year and publishes a BCP-05 record straight away,
+        without a submission from the public form.
+      </p>
 
-      <form onSubmit={onSubmit} noValidate className="mt-14 max-w-3xl space-y-14">
+      <form onSubmit={onSubmit} noValidate className="mt-10 space-y-12">
         <section className="space-y-6">
-          <SectionHeading index={1} title="Contact" body="Used to coordinate the report. Never published." />
-          <div className="grid gap-6 md:grid-cols-2">
-            <Field label="Your name" htmlFor="reporter_name" error={errors.reporter_name?.message}>
-              <Input id="reporter_name" autoComplete="name" {...register("reporter_name")} />
-            </Field>
-            <Field label="Email" htmlFor="reporter_email" error={errors.reporter_email?.message}>
-              <Input id="reporter_email" type="email" autoComplete="email" {...register("reporter_email")} />
-            </Field>
-          </div>
-          <Field label="Organization (optional)" htmlFor="reporter_org" error={errors.reporter_org?.message}>
-            <Input id="reporter_org" autoComplete="organization" {...register("reporter_org")} />
-          </Field>
-        </section>
+          <SectionHeading index={1} title="Advisory" body="What is affected and how severe the impact is." />
 
-        <section className="space-y-6">
-          <SectionHeading index={2} title="Vulnerability" body="What is affected, and how severe the impact is." />
           <Field label="Title" htmlFor="title" error={errors.title?.message}>
             <Input id="title" placeholder="Unauthenticated device reset in the web interface" {...register("title")} />
           </Field>
@@ -273,16 +248,16 @@ export function RequestForm() {
             <Field
               label="CVSS score (optional)"
               htmlFor="cvss_score"
-              error={errors.cvss_score?.message}
               hint="0 to 10, matching the vector below."
+              error={errors.cvss_score?.message}
             >
               <Input id="cvss_score" inputMode="decimal" {...register("cvss_score")} />
             </Field>
             <Field
               label="CVSS vector (optional)"
               htmlFor="cvss_vector"
+              hint="CVSS 3.1 or 4.0."
               error={errors.cvss_vector?.message}
-              hint="CVSS 3.1 or 4.0, for example CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
             >
               <Input id="cvss_vector" className="font-mono text-sm" {...register("cvss_vector")} />
             </Field>
@@ -292,16 +267,16 @@ export function RequestForm() {
             <Field
               label="Existing CVE (optional)"
               htmlFor="cve_id"
+              hint="Links the record to a CVE as an equal relationship."
               error={errors.cve_id?.message}
-              hint="Leave empty unless a CVE already exists for this vulnerability."
             >
               <Input id="cve_id" className="font-mono text-sm" {...register("cve_id")} />
             </Field>
             <Field
               label="CWE identifiers (optional)"
               htmlFor="cwe_ids"
+              hint="Comma separated, up to five."
               error={errors.cwe_ids?.message}
-              hint="Comma separated, up to five, for example CWE-79, CWE-862."
             >
               <Input id="cwe_ids" className="font-mono text-sm" {...register("cwe_ids")} />
             </Field>
@@ -309,13 +284,9 @@ export function RequestForm() {
         </section>
 
         <section className="space-y-6">
-          <SectionHeading index={3} title="Details" body="What the vulnerability does and how to reproduce it." />
-          <Field
-            label="Description"
-            htmlFor="description"
-            error={errors.description?.message}
-            hint={`${descriptionLength} of 8000 characters, minimum 50.`}
-          >
+          <SectionHeading index={2} title="Content" body="Written up the way it should appear in the register." />
+
+          <Field label="Description" htmlFor="description" error={errors.description?.message}>
             <Textarea id="description" rows={6} {...register("description")} />
           </Field>
 
@@ -328,7 +299,7 @@ export function RequestForm() {
           </Field>
 
           <div>
-            <Label>References (optional)</Label>
+            <p className="text-sm font-semibold text-ink">References (optional)</p>
             <p className="mt-1 text-xs text-ink-soft">Up to ten links to advisories, patches, or write ups.</p>
             <div className="mt-2 space-y-3">
               {references.fields.map((entry, index) => (
@@ -373,57 +344,43 @@ export function RequestForm() {
         </section>
 
         <section className="space-y-6">
-          <SectionHeading index={4} title="Review" body="Confirm the policy and pass bot verification." />
-          <Controller
-            control={control}
-            name="consent"
-            render={({ field }) => (
-              <div>
-                <div className="flex items-start gap-3">
-                  <Checkbox id="consent" checked={field.value} onCheckedChange={(checked) => field.onChange(checked === true)} />
-                  <Label htmlFor="consent" className="font-normal text-ink-soft">
-                    I agree to the{" "}
-                    <Link to="/policy" className="link-body">
-                      disclosure policy
-                    </Link>{" "}
-                    and to being contacted about this report.
-                  </Label>
-                </div>
-                {errors.consent?.message ? (
-                  <p role="alert" className="mt-2 text-sm text-danger">
-                    {errors.consent.message}
-                  </p>
-                ) : null}
-              </div>
-            )}
-          />
+          <SectionHeading index={3} title="Attribution" body="Optional credit and publication date." />
 
-          <input
-            {...register("company_website")}
-            tabIndex={-1}
-            autoComplete="off"
-            aria-hidden="true"
-            className="sr-only"
-            aria-label="Leave this field empty"
-          />
+          <div className="grid gap-6 md:grid-cols-2">
+            <Field
+              label="Credits (optional)"
+              htmlFor="credits"
+              hint="Defaults to the authority name."
+              error={errors.credits?.message}
+            >
+              <Input id="credits" {...register("credits")} />
+            </Field>
+            <Field
+              label="Public date (optional)"
+              htmlFor="date_public"
+              hint="Original disclosure date, YYYY-MM-DD."
+              error={errors.date_public?.message}
+            >
+              <Input id="date_public" placeholder="2018-10-15" {...register("date_public")} />
+            </Field>
+          </div>
+        </section>
 
-          <TurnstileWidget
-            key={turnstileKey}
-            siteKey={config.data?.turnstileSiteKey ?? null}
-            onToken={setToken}
-          />
+        {banner ? (
+          <p role="alert" className="border-l-4 border-danger bg-surface-dim px-4 py-3 text-sm text-ink">
+            {banner}
+          </p>
+        ) : null}
 
-          {banner ? (
-            <p role="alert" className="border-l-4 border-danger bg-surface-dim px-4 py-3 text-sm text-ink">
-              {banner}
-            </p>
-          ) : null}
-
+        <div className="flex flex-wrap gap-4 border-t border-surface-high pt-6">
           <Button type="submit" size="lg" disabled={isSubmitting}>
             {isSubmitting ? <CircleNotch size={18} weight="bold" className="animate-spin" /> : null}
-            {isSubmitting ? "Sending report" : "Submit report"}
+            {isSubmitting ? "Allocating" : "Allocate GCVE identifier"}
           </Button>
-        </section>
+          <Button asChild variant="ghost" size="lg">
+            <Link to="/admin">Cancel</Link>
+          </Button>
+        </div>
       </form>
     </div>
   );
